@@ -1,0 +1,33 @@
+{
+  "name": "new-relic-dashboard-in-slack",
+  "version": "1.0.0",
+  "description": "Personalized New Relic dashboard in Slack App Home",
+  "main": "app.js",
+  "scripts": {
+    "local": "node_modules/.bin/nodemon app.js",
+    "start": "node app.js"
+  },
+  "nodemonConfig": {
+    "ignore": ["tmp"]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seratch/new-relic-dashboard-in-slack.git"
+  },
+  "keywords": [
+    "slack",
+    "new-relic"
+  ],
+  "author": "Kazuhiro Sera @seratch",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/seratch/new-relic-dashboard-in-slack/issues"
+  },
+  "homepage": "https://github.com/seratch/new-relic-dashboard-in-slack#readme",
+  "dependencies": {
+    "@slack/bolt": "^1.4.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.0"
+  }
+}

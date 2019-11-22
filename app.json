@@ -1,0 +1,22 @@
+{
+    "name": "Personalized New Relic Dashboard App in Slack",
+    "description": "Tiny Bolt ⚡️ app demonstrates how to build Slack apps utilizing Slack's new features and New Relic APIs",
+    "repository": "https://github.com/seratch/new-relic-dashboard-in-slack",
+    "keywords": [
+        "Slack",
+        "Slack API",
+        "New Relic",
+        "Heroku"
+    ],
+    "env": {
+        "SLACK_SIGNING_SECRET": {
+            "description": "Slack Signing Secret",
+            "value": "cda6e9cbf46a********************"
+        },
+        "SLACK_BOT_TOKEN": {
+            "description": "Slack App Bot Token",
+            "value": "xoxb-************-************-************************"
+        }
+    },
+    "image": "heroku/nodejs"
+}
