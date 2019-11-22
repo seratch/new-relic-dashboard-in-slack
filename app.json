@@ -9,6 +9,10 @@
         "Heroku"
     ],
     "env": {
+        "SLACK_APP_DEBUG": {
+            "description": "Set 1 if you need detailed logging",
+            "value": "0"
+        },
         "SLACK_SIGNING_SECRET": {
             "description": "Slack Signing Secret",
             "value": "cda6e9cbf46a********************"

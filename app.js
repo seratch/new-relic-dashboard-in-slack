@@ -1,22 +1,35 @@
 const { FileDatabase } = require('./database');
-const { NewRelicRestApi, NewRelicInsightsApi } = require('./new-relic');
+const { NewRelicRestApi, NewRelicInsightsApi } = require('./new-relic-api');
 
 const database = new FileDatabase();
+
+const newRelicAgentEnabled = process.env.SLACK_APP_NEW_RELIC_AGENT_ENABLED === '1';
+if (newRelicAgentEnabled) {
+  // NOTE: You need to modify `license_key` in new-relic-agent.js
+  require('./new-relic-agent');
+}
 
 // --------------------------
 // Bolt App
 // --------------------------
 
 const { App } = require('@slack/bolt');
+const { ConsoleLogger, LogLevel } = require('@slack/logger');
+const logger = new ConsoleLogger();
+
+const debugMode = process.env.SLACK_APP_DEBUG === '1';
+const logLevel = debugMode ? LogLevel.DEBUG : LogLevel.INFO;
 
 const app = new App({
+  logger: logger,
+  logLevel: logLevel,
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET
 });
 
-if (process.env.SLACK_APP_DEBUG) {
+if (debugMode) {
   app.use(args => {
-    console.log(JSON.stringify(args));
+    logger.debug(`Dumping requset body for debugging...\n\n${JSON.stringify(args)}\n`);
     args.next();
   });
 }
@@ -35,28 +48,36 @@ app.action('view-in-browser-button', ({ ack }) => {
 
 app.event('app_home_opened', async ({ event, context }) => {
   const slackUserId = event.user;
-  const settings = await database.find(slackUserId);
+  const settings = await database.findSettings(slackUserId);
   const view = await buildAppHome(
     settings ? settings.accountId : undefined,
     settings ? settings.defaultApplicationId : undefined,
-    settings && settings.restApiKey ? new NewRelicRestApi(settings.restApiKey) : undefined
+    settings && settings.restApiKey ? new NewRelicRestApi(settings.restApiKey, logger) : undefined
   );
-  await viewsPublish(app.client, context, slackUserId, view);
+  await callViewsApi(app.client, 'publish', {
+    token: context.botToken,
+    user_id: slackUserId,
+    view: view
+  });
 });
 
 app.action('select-app-overlay-menu', async ({ ack, body, context }) => {
   ack();
   const slackUserId = body.user.id;
   const applicationId = body.actions[0].selected_option.value;
-  const settings = await database.find(slackUserId);
+  const settings = await database.findSettings(slackUserId);
   settings['defaultApplicationId'] = applicationId;
-  await database.save(settings);
+  await database.saveSettings(settings);
   const view = await buildAppHome(
     settings.accountId,
     settings.defaultApplicationId,
-    new NewRelicRestApi(settings.restApiKey)
+    new NewRelicRestApi(settings.restApiKey, logger)
   );
-  await viewsPublish(app.client, context, slackUserId, view);
+  await callViewsApi(app.client, 'publish', {
+    token: context.botToken,
+    user_id: slackUserId,
+    view: view
+  });
 });
 
 // --------------------------
@@ -65,9 +86,13 @@ app.action('select-app-overlay-menu', async ({ ack, body, context }) => {
 
 app.action('settings-button', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
-  const settings = await database.find(slackUserId);
+  const settings = await database.findSettings(slackUserId);
   const view = await buildSettingsModal(settings);
-  viewsOpen(app.client, context, body.trigger_id, view);
+  callViewsApi(app.client, 'open', {
+    token: context.botToken,
+    trigger_id: body.trigger_id,
+    view: view
+  });
   ack();
 });
 
@@ -78,16 +103,15 @@ app.view('settings-modal', async ({ ack, body, context }) => {
   const restApiKey = values['input-rest-api-key']['input'].value
   const queryApiKey = values['input-query-api-key']['input'].value
 
-  console.log(accountId);
   // server-side validation
   const errors = {};
-  if (typeof accountId === 'undefined' || !accountId.match(/^\d+$/) ) {
+  if (typeof accountId === 'undefined' || !accountId.match(/^\d+$/)) {
     errors['input-account-id'] = 'Account Id must be a numeric value';
   }
-  if (typeof restApiKey === 'undefined' || !restApiKey.match(/^NRRA-\w{42}$/) ) {
+  if (typeof restApiKey === 'undefined' || !restApiKey.match(/^NRRA-\w{42}$/)) {
     errors['input-rest-api-key'] = 'REST API Key must be in a valid format';
   }
-  if (typeof queryApiKey === 'undefined' || !queryApiKey.match(/^NRIQ-\w{32}$/) ) {
+  if (typeof queryApiKey === 'undefined' || !queryApiKey.match(/^NRIQ-\w{32}$/)) {
     errors['input-query-api-key'] = 'Query API Key must be in a valid format';
   }
   if (Object.entries(errors).length > 0) {
@@ -98,7 +122,7 @@ app.view('settings-modal', async ({ ack, body, context }) => {
     return;
   }
 
-  var settings = await database.find(slackUserId);
+  var settings = await database.findSettings(slackUserId);
   if (typeof settings === 'undefined') {
     settings = {};
   }
@@ -106,23 +130,31 @@ app.view('settings-modal', async ({ ack, body, context }) => {
   settings['accountId'] = accountId;
   settings['restApiKey'] = restApiKey;
   settings['queryApiKey'] = queryApiKey;
-  await database.save(settings);
+  await database.saveSettings(settings);
   ack();
 
   const view = await buildAppHome(
     accountId,
     undefined,
-    new NewRelicRestApi(restApiKey)
+    new NewRelicRestApi(restApiKey, logger)
   );
-  await viewsPublish(app.client, context, slackUserId, view);
+  await callViewsApi(app.client, 'publish', {
+    token: context.botToken,
+    user_id: slackUserId,
+    view: view
+  });
 });
 
 app.action('clear-settings-button', async ({ ack, body, context }) => {
   ack();
   const slackUserId = body.user.id;
-  await database.delete(slackUserId);
+  await database.deleteAll(slackUserId);
   const view = await buildAppHome(undefined, undefined, undefined);
-  await viewsPublish(app.client, context, slackUserId, view);
+  await callViewsApi(app.client, 'publish', {
+    token: context.botToken,
+    user_id: slackUserId,
+    view: view
+  });
 });
 
 // --------------------------
@@ -131,22 +163,57 @@ app.action('clear-settings-button', async ({ ack, body, context }) => {
 
 app.action('query-button', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
-  const settings = await database.find(slackUserId);
-  const view = await buildQueryModal(undefined, settings);
-  viewsOpen(app.client, context, body.trigger_id, view);
+  const settings = await database.findSettings(slackUserId);
+  const queries = await database.findQueries(slackUserId);
+  const query = buildQuery(queries.length > 0 ? queries[0] : undefined, settings);
+  await database.saveQuery(slackUserId, query);
+  const view = await buildQueryModal(query, settings);
+  await callViewsApi(app.client, 'open', {
+    token: context.botToken,
+    trigger_id: body.trigger_id,
+    view: view
+  });
   ack();
 });
 
 app.view('query-modal', async ({ ack, body }) => {
   const slackUserId = body.user.id;
   const query = body.view.state.values['input-query']['input'].value
-  const settings = await database.find(slackUserId);
+  await database.saveQuery(slackUserId, query);
+  const settings = await database.findSettings(slackUserId);
   const view = await buildQueryModal(query, settings);
-  console.log(JSON.stringify(view));
   ack({
     response_action: 'update',
     view: view
   });
+});
+
+app.action('query-history-button', async ({ ack, body, context }) => {
+  const slackUserId = body.user.id;
+  const queries = await database.findQueries(slackUserId);
+  const view = await buildQueryHistoryModal(queries);
+  await callViewsApi(app.client, 'update', {
+    token: context.botToken,
+    view_id: body.view.id,
+    view: view
+  });
+  ack();
+});
+
+app.action('query-radio-button', async ({ ack, body, context }) => {
+  const slackUserId = body.user.id;
+  const idx = body.actions[0].selected_option.value;
+  const queries = await database.findQueries(slackUserId);
+  const query = queries[parseInt(idx)];
+  await database.saveQuery(slackUserId, query);
+  const settings = await database.findSettings(slackUserId);
+  const view = await buildQueryModal(query, settings);
+  await callViewsApi(app.client, 'update', {
+    token: context.botToken,
+    view_id: body.view.id,
+    view: view
+  });
+  ack();
 });
 
 // --------------------------
@@ -156,22 +223,15 @@ app.view('query-modal', async ({ ack, body }) => {
 // --------------
 // API Calls
 
-function viewsOpen(client, context, trigggerId, view) {
-  return client.views.open({
-    token: context.botToken,
-    trigger_id: trigggerId,
-    view: view
-  }).then(res => console.log(`Succeeded - ${JSON.stringify(res)}`))
-    .catch(err => console.log(`Failed - ${JSON.stringify(err)}`));
-}
-
-function viewsPublish(client, context, slackUserId, view) {
-  return client.views.publish({
-    token: context.botToken,
-    user_id: slackUserId,
-    view: view
-  }).then(res => console.log(`Succeeded - ${JSON.stringify(res)}`))
-    .catch(err => console.log(`Failed - ${JSON.stringify(err)}`));
+async function callViewsApi(client, method, options) {
+  if (debugMode) {
+    logger.debug(`Going to send this view to views.${method} API\n\n${JSON.stringify(options.view)}\n`)
+  }
+  return client.apiCall(`views.${method}`, options).then(res => {
+    if (debugMode) {
+      logger.debug(`Succeeded to ${method} a view\n\n${JSON.stringify(res)}\n`)
+    }
+  }).catch(err => logger.error(`Failed ${method} a view - api response: ${JSON.stringify(err)}`));
 }
 
 // --------------
@@ -275,7 +335,7 @@ async function buildAppHome(accountId, applicationId, newRelic) {
     const appsResponse = await newRelic.applicationsList();
     applications = appsResponse.data.applications;
   } catch (e) {
-    console.error(`Failed to call New Relic API - ${e}`)
+    logger.error(`Failed to call New Relic API - ${e}`)
   }
   if (applications.length == 0) {
     return {
@@ -339,7 +399,7 @@ async function buildAppHome(accountId, applicationId, newRelic) {
           "text": "View in browser"
         },
         "action_id": "view-in-browser-button",
-        "url": "https://rpm.newrelic.com/accounts/368722/applications/392481444"
+        "url": `https://rpm.newrelic.com/accounts/${accountId}/applications/${applicationId}`
       }
     }
   );
@@ -414,11 +474,14 @@ async function buildAppHome(accountId, applicationId, newRelic) {
 // --------------
 // Building Modals
 
-async function buildQueryModal(givenQuery, settings) {
+function buildQuery(givenQuery, settings) {
   const fullQuery = "SELECT name, host, duration, timestamp FROM Transaction SINCE 30 MINUTES AGO";
-  const defaultQuery = (settings && settings.defaultApplicationId) ? `${fullQuery} WHERE appId = ${settings.defaultApplicationId}` : fullQuery;
+  const defaultQuery = settings && settings.defaultApplicationId ? `${fullQuery} WHERE appId = ${settings.defaultApplicationId}` : fullQuery;
   const query = givenQuery ? givenQuery : defaultQuery;
+  return query;
+}
 
+async function buildQueryModal(query, settings) {
   const blocks = [
     {
       "type": "actions",
@@ -427,10 +490,18 @@ async function buildQueryModal(givenQuery, settings) {
           "type": "button",
           "text": {
             "type": "plain_text",
-            "text": "NRQL: New Relic Query Language"
+            "text": "What's NRQL?"
           },
           "action_id": "view-in-browser-button",
           "url": "https://docs.newrelic.com/docs/query-data/nrql-new-relic-query-language/getting-started/nrql-syntax-components-functions"
+        },
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Query History"
+          },
+          "action_id": "query-history-button"
         }
       ]
     },
@@ -457,7 +528,7 @@ async function buildQueryModal(givenQuery, settings) {
 
   let queryResponse;
   if (settings.queryApiKey) {
-    const api = new NewRelicInsightsApi(settings.accountId, settings.queryApiKey);
+    const api = new NewRelicInsightsApi(settings.accountId, settings.queryApiKey, logger);
     queryResponse = await api.run(query);
   }
   if (queryResponse && queryResponse.data) {
@@ -555,6 +626,65 @@ async function buildQueryModal(givenQuery, settings) {
   };
 }
 
+async function buildQueryHistoryModal(queries) {
+  const options = []
+  for (let idx = 0; idx < queries.length; idx++) {
+    const query = queries[idx];
+    const elements = query.split(' ');
+    let text = '';
+    let description = '';
+    for (const elem of elements) {
+      if (description.length == 0 && (text + elem).length <= 70) {
+        text = text + ' ' + elem;
+      } else {
+        description = description + ' ' + elem;
+      }
+    }
+    description = description.slice(0, 70) + '...';
+
+    options.push({
+      "text": {
+        "type": "plain_text",
+        "text": text
+      },
+      "description": {
+        "type": "plain_text",
+        "text": description
+      },
+      "value": idx.toString()
+    });
+  }
+  const blocks = [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "Here is the list of the queries you recently ran. Select a query you'd like to run again."
+      },
+      "accessory": {
+        "type": "radio_buttons",
+        "action_id": "query-radio-button",
+        "options": options
+      }
+    }
+  ];
+  return {
+    "type": "modal",
+    "title": {
+      "type": "plain_text",
+      "text": "Insights Query History",
+      "emoji": false
+    },
+    "close": {
+      "type": "plain_text",
+      "text": "Close",
+      "emoji": false
+    },
+    "blocks": blocks,
+    "callback_id": "query-history-modal"
+  };
+}
+
 async function buildSettingsModal(settings) {
   return {
     "type": "modal",
@@ -642,5 +772,5 @@ async function buildSettingsModal(settings) {
 
 (async () => {
   await app.start(process.env.PORT || 3000);
-  console.log('⚡️ Bolt app is running!');
+  logger.info('⚡️ Bolt app is running!');
 })();

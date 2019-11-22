@@ -17,9 +17,32 @@ Modals are dynamic and interactive space for collecting data from Slack users an
 
 <img src="https://github.com/seratch/new-relic-dashboard-in-slack/raw/master/images/query-modal.png" width=600 />
 
+# Prerequisites
+
+## Slack App
+
+* Create a Slack App at https://api.slack.com/
+* Sign up for App Home Beta (the feature is in the open beta as of Nov 2019)
+* Enable bot scopes (`app_mentions:read`, `users:read`)
+* Enable event subscriptions (`app_home_opened`, `app_mention`)
+* Enable Interactive Components (Just set `Request URL` correctly and save the change)
+* Install the App into your workspace
+
+<img src="https://github.com/seratch/new-relic-dashboard-in-slack/raw/master/images/settings-app-home.png" width=500 />
+<img src="https://github.com/seratch/new-relic-dashboard-in-slack/raw/master/images/settings-scopes.png" width=500 />
+<img src="https://github.com/seratch/new-relic-dashboard-in-slack/raw/master/images/settings-event-subscriptions.png" width=500 />
+
+## New Relic
+
+* REST API Key - `https://rpm.newrelic.com/accounts/{your account id}/integrations?page=api_keys`
+* Insights API Key - `https://insights.newrelic.com/accounts/{your account id}/manage/api_keys`
+
+<img src="https://github.com/seratch/new-relic-dashboard-in-slack/raw/master/images/settings.png" width=500 />
+
 # Local Development
 
 ```bash
+export SLACK_APP_DEBUG=1
 export SLACK_BOT_TOKEN=xoxb-xxx-yyy
 export SLACK_SIGNING_SECRET=abc
 npm i
@@ -27,16 +50,50 @@ npm run local
 ```
 
 ```bash
-docker build -t new-relic-app
-docker run  -e SLACK_BOT_TOKEN=xoxb-xxx-yyy -e SLACK_SIGNING_SECRET=abc -it new-relic-app
+docker build -t new-relic-app .
+docker run \
+  -p 3000:3000 \
+  -e SLACK_APP_DEBUG=1 \
+  -e SLACK_BOT_TOKEN=xoxb-xxx-yyy \
+  -e SLACK_SIGNING_SECRET=abc \
+  -it new-relic-app
+```
+
+Also, run [ngrok](https://ngrok.com/) on localhost and set the URL at `https://api.slack.com/apps/{your app id}`.
+
+```bash
+ngrok http 3000
 ```
 
 # Deployment
 
 If you prefer using a real database, feel free to fork this repository 👍
 
-* Create and deploy a Docker container
-* [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/seratch/new-relic-dashboard-in-slack/tree/master)
+## Heroku
+
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/seratch/new-relic-dashboard-in-slack/tree/master)
+
+## Google Cloud Run
+
+```bash
+gcloud config list # make sure if the project is valid
+export GLOUD_PROJECT={your project}
+export IMAGE_NAME=new-relic-bolt-app
+export SLACK_BOT_TOKEN=xoxb-xxx-yyy-zzz
+export SLACK_SIGNING_SECRET=the-value
+
+git clone git@github.com:seratch/new-relic-dashboard-in-slack.git
+cd new-relic-dashboard-in-slack
+
+# Build a Docker image and upload it to Google's registry
+gcloud builds submit --tag gcr.io/${GLOUD_PROJECT}/${IMAGE_NAME} .
+
+# Deploy a Docker container to Google Cloud Run
+gcloud run deploy \
+  --image gcr.io/${GLOUD_PROJECT}/${IMAGE_NAME} \
+  --platform managed \
+  --update-env-vars SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN},SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+```
 
 # Resources
 

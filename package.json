@@ -8,7 +8,9 @@
     "start": "node app.js"
   },
   "nodemonConfig": {
-    "ignore": ["tmp"]
+    "ignore": [
+      "tmp"
+    ]
   },
   "repository": {
     "type": "git",
@@ -25,7 +27,8 @@
   },
   "homepage": "https://github.com/seratch/new-relic-dashboard-in-slack#readme",
   "dependencies": {
-    "@slack/bolt": "^1.4.1"
+    "@slack/bolt": "^1.4.1",
+    "newrelic": "^6.1.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.0"
