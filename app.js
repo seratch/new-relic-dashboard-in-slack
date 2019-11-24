@@ -108,12 +108,20 @@ app.view('settings-modal', async ({ ack, body, context }) => {
   if (typeof accountId === 'undefined' || !accountId.match(/^\d+$/)) {
     errors['input-account-id'] = 'Account Id must be a numeric value';
   }
+
   if (typeof restApiKey === 'undefined' || !restApiKey.match(/^NRRA-\w{42}$/)) {
     errors['input-rest-api-key'] = 'REST API Key must be in a valid format';
+  } else if ((await verifyRestApiKey(restApiKey, logger)) == false) {
+    errors['input-rest-api-key'] = 'REST API Key seems to be invalid';
   }
+
   if (typeof queryApiKey === 'undefined' || !queryApiKey.match(/^NRIQ-\w{32}$/)) {
     errors['input-query-api-key'] = 'Query API Key must be in a valid format';
+  } else if ((await verifyQueryApiKey(accountId, queryApiKey, logger)) == false) {
+    errors['input-query-api-key'] = 'Query API Key (or Account Id) seems to be invalid';
   }
+
+  console.log(Object.entries(errors).length + " - " + JSON.stringify(errors));
   if (Object.entries(errors).length > 0) {
     ack({
       response_action: 'errors',
@@ -232,6 +240,20 @@ async function callViewsApi(client, method, options) {
       logger.debug(`Succeeded to ${method} a view\n\n${JSON.stringify(res)}\n`)
     }
   }).catch(err => logger.error(`Failed ${method} a view - api response: ${JSON.stringify(err)}`));
+}
+
+async function verifyRestApiKey(restApiKey) {
+  const api = new NewRelicRestApi(restApiKey, logger);
+  const result = await api.applicationsList();
+  // true if valid
+  return typeof result !== 'undefined';
+}
+
+async function verifyQueryApiKey(accountId, queryApiKey, logger) {
+  const insights = new NewRelicInsightsApi(accountId, queryApiKey, logger);
+  const result = await insights.run("select max(duration) from Transaction since 3 days ago");
+  // true if valid
+  return typeof result !== 'undefined';
 }
 
 // --------------
