@@ -546,9 +546,10 @@ async function buildAppHome(accountId, applicationId, newRelic) {
       {
         "type": "section",
         "fields": violations.map((v) => {
+          const date = new Date(v.opened_at);
           return {
             "type": "mrkdwn",
-            "text": `Priority: *${v.priority}*\nViolation: *${v.label}*\nOpened: *${v.opened_at}*`
+            "text": `Priority: *${v.priority}*\nViolation: *${v.label}*\nOpened: *${date.toISOString()}*`
           };
         }),
       }
