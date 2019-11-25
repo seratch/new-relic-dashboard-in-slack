@@ -20,6 +20,18 @@
         "SLACK_BOT_TOKEN": {
             "description": "Slack App Bot Token",
             "value": "xoxb-************-************-************************"
+        },
+        "SLACK_APP_NEW_RELIC_AGENT_ENABLED": {
+            "description": "Set 1 if you enable New Relic Agent for this app",
+            "value": "0"
+        },
+        "SLACK_APP_NEW_RELIC_APP_NAME": {
+            "description": "New Relic Application name to set in Agent config",
+            "value": "new-relic-dashboard-in-slack"
+        },
+        "SLACK_APP_NEW_RELIC_LICENSE_KEY": {
+            "description": "New Relic License Key to set in Agent config",
+            "value": "abcabc***************************"
         }
     },
     "image": "heroku/nodejs"

@@ -14,7 +14,9 @@ const database = new FileDatabase();
 // Enable New Relic Agent for this app (optional)
 const newRelicAgentEnabled = process.env.SLACK_APP_NEW_RELIC_AGENT_ENABLED === '1';
 if (newRelicAgentEnabled) {
-  // NOTE: You need to modify `license_key` in newrelic.js
+  // Also need to configure the following env variables:
+  // - SLACK_APP_NEW_RELIC_APP_NAME
+  // - SLACK_APP_NEW_RELIC_LICENSE_KEY
   require('newrelic');
 }
 
@@ -493,7 +495,7 @@ async function buildAppHome(accountId, applicationId, newRelic) {
   );
 
   const hostsResponse = await newRelic.applicationHostsList(app.id);
-  const hosts = hostsResponse.data.applicationHosts;
+  const hosts = hostsResponse.data.application_hosts;
   if (hosts && hosts.length > 0) {
     blocks.push(
       {

@@ -9,11 +9,11 @@ exports.config = {
   /**
    * Array of application names.
    */
-  app_name: ['new-relic-dashboard-node'],
+  app_name: [process.env.SLACK_APP_NEW_RELIC_APP_NAME],
   /**
    * Your New Relic license key.
    */
-  license_key: 'license key here', // TODO: modify this
+  license_key: process.env.SLACK_APP_NEW_RELIC_LICENSE_KEY,
   logging: {
     /**
      * Level at which to log. 'trace' is most useful to New Relic when diagnosing
