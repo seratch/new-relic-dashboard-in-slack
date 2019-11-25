@@ -1,5 +1,7 @@
 const axios = require('axios').default;
 
+// https://docs.newrelic.com/docs/apis/get-started/intro-apis/introduction-new-relic-apis
+// https://rpm.newrelic.com/api/explore
 class NewRelicRestApi {
     constructor(restApiKey, logger) {
         this.restApiKey = restApiKey;
@@ -42,6 +44,7 @@ class NewRelicRestApi {
     }
 }
 
+// https://docs.newrelic.com/docs/insights/insights-api
 class NewRelicInsightsApi {
     constructor(accountId, queryApiKey, logger) {
         this.queryApiKey = queryApiKey;
@@ -59,7 +62,6 @@ class NewRelicInsightsApi {
                 this.logger.error(`Got an error while calling New Relic Insights API /query - ${err}`)
             });
     }
-
 }
 
 exports.NewRelicRestApi = NewRelicRestApi;

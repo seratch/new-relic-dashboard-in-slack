@@ -1,8 +1,17 @@
+// ---------------------------------------------------
+// Personalized New Relic Dashboard in Slack
+//
+// The MIT License
+// Copyright 2019 Kazuhiro Sera @seratch
+// ---------------------------------------------------
+
 const { FileDatabase } = require('./database');
 const { NewRelicRestApi, NewRelicInsightsApi } = require('./new-relic-api');
 
+// Database to store New Relic crednetials and NRQL queries
 const database = new FileDatabase();
 
+// Enable New Relic Agent for this app (optional)
 const newRelicAgentEnabled = process.env.SLACK_APP_NEW_RELIC_AGENT_ENABLED === '1';
 if (newRelicAgentEnabled) {
   // NOTE: You need to modify `license_key` in new-relic-agent.js
@@ -15,6 +24,9 @@ if (newRelicAgentEnabled) {
 
 const { App } = require('@slack/bolt');
 const { ConsoleLogger, LogLevel } = require('@slack/logger');
+
+// ConsoleLogger is the default logger. You can go with your own implementation of 
+// https://github.com/slackapi/node-slack-sdk/blob/%40slack/logger%402.0.0/packages/logger/src/index.ts#L14-L63
 const logger = new ConsoleLogger();
 
 const debugMode = process.env.SLACK_APP_DEBUG === '1';
@@ -23,11 +35,15 @@ const logLevel = debugMode ? LogLevel.DEBUG : LogLevel.INFO;
 const app = new App({
   logger: logger,
   logLevel: logLevel,
+  // Setting a token here means this app runs in a specific single workspace.
+  // https://api.slack.com/apps/{app id}/install-on-team
   token: process.env.SLACK_BOT_TOKEN,
+  // You can find this value at https://api.slack.com/apps/{app id}/general.
   signingSecret: process.env.SLACK_SIGNING_SECRET
 });
 
 if (debugMode) {
+  // Request body dumper - a simple Bolt middleware example
   app.use(args => {
     logger.debug(`Dumping requset body for debugging...\n\n${JSON.stringify(args)}\n`);
     args.next();
@@ -38,6 +54,7 @@ if (debugMode) {
 // Common Actions
 // --------------------------
 
+// Receives requests sent by clicking "View in browser" buttons
 app.action('view-in-browser-button', ({ ack }) => {
   ack();
 });
@@ -46,14 +63,21 @@ app.action('view-in-browser-button', ({ ack }) => {
 // App Home
 // --------------------------
 
+// Handles events triggered when a user has entered the App Home.
+// App Home: https://api.slack.com/surfaces/tabs/using
+// Event: https://api.slack.com/events/app_home_opened
 app.event('app_home_opened', async ({ event, context }) => {
   const slackUserId = event.user;
   const settings = await database.findSettings(slackUserId);
+
+  // Build a Home tab - https://api.slack.com/surfaces/tabs/using
   const view = await buildAppHome(
     settings ? settings.accountId : undefined,
     settings ? settings.defaultApplicationId : undefined,
     settings && settings.restApiKey ? new NewRelicRestApi(settings.restApiKey, logger) : undefined
   );
+
+  // Send the Home tab via views.publish - https://api.slack.com/methods/views.publish
   await callViewsApi(app.client, 'publish', {
     token: context.botToken,
     user_id: slackUserId,
@@ -61,18 +85,23 @@ app.event('app_home_opened', async ({ event, context }) => {
   });
 });
 
+// Handles requests sent by selecting a New Relic Application from the overlay menu in the middle of Home tab
+// https://api.slack.com/reference/block-kit/block-elements#overflow
 app.action('select-app-overlay-menu', async ({ ack, body, context }) => {
   ack();
   const slackUserId = body.user.id;
   const applicationId = body.actions[0].selected_option.value;
+
   const settings = await database.findSettings(slackUserId);
   settings['defaultApplicationId'] = applicationId;
-  await database.saveSettings(settings);
+  await database.saveSettings(settings); // update defaultApplicationId
+
   const view = await buildAppHome(
     settings.accountId,
     settings.defaultApplicationId,
     new NewRelicRestApi(settings.restApiKey, logger)
   );
+
   await callViewsApi(app.client, 'publish', {
     token: context.botToken,
     user_id: slackUserId,
@@ -84,10 +113,15 @@ app.action('select-app-overlay-menu', async ({ ack, body, context }) => {
 // New Relic Settings
 // --------------------------
 
+// Handles requests sent by clicking "Enable Now" button
 app.action('settings-button', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
   const settings = await database.findSettings(slackUserId);
+
+  // Build a Home tab - https://api.slack.com/block-kit/surfaces/modals
   const view = await buildSettingsModal(settings);
+
+  // Open a new modal - https://api.slack.com/methods/views.open
   callViewsApi(app.client, 'open', {
     token: context.botToken,
     trigger_id: body.trigger_id,
@@ -96,32 +130,33 @@ app.action('settings-button', async ({ ack, body, context }) => {
   ack();
 });
 
+// Handles data submission requests from the settings modal
 app.view('settings-modal', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
+
+  // User inputs in a view
+  // https://api.slack.com/reference/interaction-payloads/views#view_submission_fields
   const values = body.view.state.values;
   const accountId = values['input-account-id']['input'].value
   const restApiKey = values['input-rest-api-key']['input'].value
   const queryApiKey = values['input-query-api-key']['input'].value
 
-  // server-side validation
+  // Server-side validation
   const errors = {};
   if (typeof accountId === 'undefined' || !accountId.match(/^\d+$/)) {
     errors['input-account-id'] = 'Account Id must be a numeric value';
   }
-
   if (typeof restApiKey === 'undefined' || !restApiKey.match(/^NRRA-\w{42}$/)) {
     errors['input-rest-api-key'] = 'REST API Key must be in a valid format';
   } else if ((await verifyRestApiKey(restApiKey, logger)) == false) {
     errors['input-rest-api-key'] = 'REST API Key seems to be invalid';
   }
-
   if (typeof queryApiKey === 'undefined' || !queryApiKey.match(/^NRIQ-\w{32}$/)) {
     errors['input-query-api-key'] = 'Query API Key must be in a valid format';
   } else if ((await verifyQueryApiKey(accountId, queryApiKey, logger)) == false) {
     errors['input-query-api-key'] = 'Query API Key (or Account Id) seems to be invalid';
   }
 
-  console.log(Object.entries(errors).length + " - " + JSON.stringify(errors));
   if (Object.entries(errors).length > 0) {
     ack({
       response_action: 'errors',
@@ -139,8 +174,10 @@ app.view('settings-modal', async ({ ack, body, context }) => {
   settings['restApiKey'] = restApiKey;
   settings['queryApiKey'] = queryApiKey;
   await database.saveSettings(settings);
+
   ack();
 
+  // Update Home Tab using the given credentials
   const view = await buildAppHome(
     accountId,
     undefined,
@@ -153,10 +190,14 @@ app.view('settings-modal', async ({ ack, body, context }) => {
   });
 });
 
+// Handles requests sent by clicking "Clear Settings" button
 app.action('clear-settings-button', async ({ ack, body, context }) => {
-  ack();
   const slackUserId = body.user.id;
   await database.deleteAll(slackUserId);
+
+  ack();
+
+  // Update Home Tab
   const view = await buildAppHome(undefined, undefined, undefined);
   await callViewsApi(app.client, 'publish', {
     token: context.botToken,
@@ -169,58 +210,81 @@ app.action('clear-settings-button', async ({ ack, body, context }) => {
 // NRQL Query Runner
 // --------------------------
 
+// Handles requests sent by clicking "Query Runner" button in the Home tab
 app.action('query-button', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
+
+  // Setup the query to display in the modal
   const settings = await database.findSettings(slackUserId);
   const queries = await database.findQueries(slackUserId);
   const query = buildQuery(queries.length > 0 ? queries[0] : undefined, settings);
   await database.saveQuery(slackUserId, query);
+
+  // Open a modal to run queries
   const view = await buildQueryModal(query, settings);
   await callViewsApi(app.client, 'open', {
     token: context.botToken,
     trigger_id: body.trigger_id,
     view: view
   });
+
   ack();
 });
 
+// Handles requests sent by clicking "Run" button in the query modal
 app.view('query-modal', async ({ ack, body }) => {
   const slackUserId = body.user.id;
+
   const query = body.view.state.values['input-query']['input'].value
   await database.saveQuery(slackUserId, query);
+
   const settings = await database.findSettings(slackUserId);
   const view = await buildQueryModal(query, settings);
+
+  // Update the existing Home tab with new one
   ack({
     response_action: 'update',
     view: view
   });
 });
 
+// Handles requests sent by clicking "Query History" button in the query modal
 app.action('query-history-button', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
+
   const queries = await database.findQueries(slackUserId);
   const view = await buildQueryHistoryModal(queries);
+
+  // Update the existing Home tab with new one
   await callViewsApi(app.client, 'update', {
     token: context.botToken,
     view_id: body.view.id,
     view: view
   });
+
   ack();
 });
 
+// Handles requests sent by selecting one from the radio button in the query modal
 app.action('query-radio-button', async ({ ack, body, context }) => {
   const slackUserId = body.user.id;
+
+  // Find the selected query
   const idx = body.actions[0].selected_option.value;
   const queries = await database.findQueries(slackUserId);
   const query = queries[parseInt(idx)];
   await database.saveQuery(slackUserId, query);
+
   const settings = await database.findSettings(slackUserId);
   const view = await buildQueryModal(query, settings);
+
+  // Update the existing Home tab with new one
   await callViewsApi(app.client, 'update', {
     token: context.botToken,
     view_id: body.view.id,
     view: view
   });
+
   ack();
 });
 
@@ -231,6 +295,7 @@ app.action('query-radio-button', async ({ ack, body, context }) => {
 // --------------
 // API Calls
 
+// method: open / update / publish
 async function callViewsApi(client, method, options) {
   if (debugMode) {
     logger.debug(`Going to send this view to views.${method} API\n\n${JSON.stringify(options.view)}\n`)
@@ -242,13 +307,14 @@ async function callViewsApi(client, method, options) {
   }).catch(err => logger.error(`Failed ${method} a view - api response: ${JSON.stringify(err)}`));
 }
 
+// Returns true if the given api key is valid, false otherwise
 async function verifyRestApiKey(restApiKey) {
   const api = new NewRelicRestApi(restApiKey, logger);
   const result = await api.applicationsList();
-  // true if valid
   return typeof result !== 'undefined';
 }
 
+// Returns true if the given api key is valid, false otherwise
 async function verifyQueryApiKey(accountId, queryApiKey, logger) {
   const insights = new NewRelicInsightsApi(accountId, queryApiKey, logger);
   const result = await insights.run("select max(duration) from Transaction since 3 days ago");
