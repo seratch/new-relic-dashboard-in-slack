@@ -47,7 +47,7 @@ const app = new App({
 if (debugMode) {
   // Request body dumper - a simple Bolt middleware example
   app.use(args => {
-    logger.debug(`Dumping requset body for debugging...\n\n${JSON.stringify(args)}\n`);
+    logger.debug(`Dumping request body for debugging...\n\n${JSON.stringify(args)}\n`);
     args.next();
   });
 }
