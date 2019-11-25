@@ -74,7 +74,7 @@ app.event('app_home_opened', async ({ event, context }) => {
   const view = await buildAppHome(
     settings ? settings.accountId : undefined,
     settings ? settings.defaultApplicationId : undefined,
-    settings && settings.restApiKey ? new NewRelicRestApi(settings.restApiKey, logger) : undefined
+    settings && settings.restApiKey ? new NewRelicRestApi(settings.restApiKey, logger, debugMode) : undefined
   );
 
   // Send the Home tab via views.publish - https://api.slack.com/methods/views.publish
@@ -99,7 +99,7 @@ app.action('select-app-overlay-menu', async ({ ack, body, context }) => {
   const view = await buildAppHome(
     settings.accountId,
     settings.defaultApplicationId,
-    new NewRelicRestApi(settings.restApiKey, logger)
+    new NewRelicRestApi(settings.restApiKey, logger, debugMode)
   );
 
   await callViewsApi(app.client, 'publish', {
@@ -181,7 +181,7 @@ app.view('settings-modal', async ({ ack, body, context }) => {
   const view = await buildAppHome(
     accountId,
     undefined,
-    new NewRelicRestApi(restApiKey, logger)
+    new NewRelicRestApi(restApiKey, logger, debugMode)
   );
   await callViewsApi(app.client, 'publish', {
     token: context.botToken,
@@ -309,14 +309,14 @@ async function callViewsApi(client, method, options) {
 
 // Returns true if the given api key is valid, false otherwise
 async function verifyRestApiKey(restApiKey) {
-  const api = new NewRelicRestApi(restApiKey, logger);
+  const api = new NewRelicRestApi(restApiKey, logger, debugMode);
   const result = await api.applicationsList();
   return typeof result !== 'undefined';
 }
 
 // Returns true if the given api key is valid, false otherwise
 async function verifyQueryApiKey(accountId, queryApiKey, logger) {
-  const insights = new NewRelicInsightsApi(accountId, queryApiKey, logger);
+  const insights = new NewRelicInsightsApi(accountId, queryApiKey, logger, debugMode);
   const result = await insights.run("select max(duration) from Transaction since 3 days ago");
   // true if valid
   return typeof result !== 'undefined';
@@ -487,7 +487,7 @@ async function buildAppHome(accountId, applicationId, newRelic) {
           "text": "View in browser"
         },
         "action_id": "view-in-browser-button",
-        "url": `https://rpm.newrelic.com/accounts/${accountId}/applications/${applicationId}`
+        "url": `https://rpm.newrelic.com/accounts/${accountId}/applications/${app.id}`
       }
     }
   );
@@ -616,7 +616,7 @@ async function buildQueryModal(query, settings) {
 
   let queryResponse;
   if (settings.queryApiKey) {
-    const api = new NewRelicInsightsApi(settings.accountId, settings.queryApiKey, logger);
+    const api = new NewRelicInsightsApi(settings.accountId, settings.queryApiKey, logger, debugMode);
     queryResponse = await api.run(query);
   }
   if (queryResponse && queryResponse.data) {
